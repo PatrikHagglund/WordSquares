@@ -1,7 +1,7 @@
 # WordSquares
 A simple C++ solver for dense word grids.
 
-See this [YouTube Video](todo) for the best explanation.
+See this [YouTube Video](https://youtu.be/zWIsnrxL-Zc) for the best explanation.
 
 **NOTE:** This repository is not actively maintained and is for reference only.
 
