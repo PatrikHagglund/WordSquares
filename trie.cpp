@@ -1,5 +1,6 @@
 #include "trie.h"
 #include <cassert>
+#include <iostream>
 
 Trie::Trie() {
   std::fill(nodes, nodes + NUM_LETTERS, nullptr);
@@ -14,6 +15,9 @@ void Trie::add(const std::string& str) {
   Trie* ptr = this;
   for (char c : str) {
     const int ix = c - 'A';
+    if (ix < 0 || ix >= NUM_LETTERS) {
+      std::cerr << "Invalid character '" << c << "' (code " << (int)c << ") in word: " << str << std::endl;
+    }
     assert(ix >= 0 && ix < NUM_LETTERS);
     if (ptr->nodes[ix] == nullptr) {
       ptr->nodes[ix] = new Trie();
@@ -33,4 +37,5 @@ bool Trie::has(const std::string& str) const {
       ptr = ptr->nodes[ix];
     }
   }
+  return true;
 }

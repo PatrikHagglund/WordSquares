@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
-#define NUM_LETTERS 26
+#define NUM_LETTERS 27
+
 
 class Trie {
 public:
