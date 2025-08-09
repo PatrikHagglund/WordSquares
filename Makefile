@@ -1,23 +1,34 @@
-.PHONY: run clean kill cmake pgo-instrument pgo-optimize pgo pgo-train \
+.PHONY: run run-simple clean kill cmake pgo-instrument pgo-optimize pgo-train pgo pgo-run \
         podman-image podman-gcc podman-clang podman-pgo podman-run \
         remote-sync remote-podman-run remote-podman-shell remote-fetch-results \
         remote-tmux-run remote-tmux-attach remote-tmux-status \
         gcloud-start-remote gcloud-stop-remote gcloud-status-remote
 
-# Allow overriding compiler, default to g++
-CXX ?= g++
+# Allow overriding compiler, default to g++ -std=c++23
+# Only set CXX if not already defined (including command line)
+ifeq ($(origin CXX),default)
+CXX = g++ -std=c++23
+endif
+CXXFLAGS ?= -O3 -flto=auto -march=native -mtune=native -static
 
 # Current default target
 remote-tmux-run:
 
-run: wordsquares
+run: wordsquares WordFeud_ordlista.txt
 	stdbuf -o0 ./wordsquares 2>&1 | ts "%m%d_%H:%M:%S" | tee output.txt
 
+run-simple: wordsquares WordFeud_ordlista.txt
+	./wordsquares
+
+WordFeud_ordlista.txt:
+	printf '%s\n' A B C D E F G H I J K L M N O P Q R S T U V W X Y Z Å Ä Ö > WordFeud_ordlista.txt
+	curl -s https://raw.githubusercontent.com/38DavidH/WordFeud-SAOL/refs/heads/main/WordFeud_ordlista.txt >> WordFeud_ordlista.txt
+
 wordsquares: main.cpp trie.cpp trie.h
-	$(CXX) -std=c++23 -O3 -flto=auto -march=native -mtune=native -static -o wordsquares main.cpp trie.cpp
+	$(CXX) $(CXXFLAGS) -o wordsquares main.cpp trie.cpp
 
 cmake:
-	env CXX=clang++ CXXFLAGS="-std=c++23 -O3 -flto=auto -march=native -mtune=native" \
+	env CXX="clang++ -std=c++23"  \
 	cmake -S . -B build -G Ninja && cmake --build build -v
 	
 # Timeout for PGO training run (override: make PGO_TIMEOUT=120s pgo)
@@ -28,20 +39,22 @@ PGO_DIR ?= pgo-profile
 
 pgo-instrument: main.cpp trie.cpp trie.h
 	# Build instrumented binary as 'wordsquares' so profile filenames match during use
-	$(CXX) -std=c++26 -O3 -flto=auto -march=native -mtune=native -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic -DENABLE_PGO_FLUSH -static -o wordsquares main.cpp trie.cpp
+	$(CXX) $(CXXFLAGS) -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic -DENABLE_PGO_FLUSH -o wordsquares main.cpp trie.cpp
 
 pgo-optimize: main.cpp trie.cpp trie.h
 	# Use same defines as instrumented build to match CFG with profiles
-	$(CXX) -std=c++26 -O3 -flto=auto -march=native -mtune=native -fprofile-use=$(PGO_DIR) -fprofile-correction -DENABLE_PGO_FLUSH -static -o wordsquares main.cpp trie.cpp
+	$(CXX) $(CXXFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction -DENABLE_PGO_FLUSH -o wordsquares main.cpp trie.cpp
 
 # Run the instrumented binary with a graceful timeout to generate profiles
 pgo-train: wordsquares
 	mkdir -p $(PGO_DIR)
 	rm -f $(PGO_DIR)/*.gcda 2>/dev/null || true
-	timeout --signal=INT --kill-after=5s $(PGO_TIMEOUT) ./wordsquares 2>&1 | ts "%m%d_%H:%M:%S" | tee output_pgo.txt || true
+	timeout --signal=INT --kill-after=5s $(PGO_TIMEOUT) ./wordsquares || true
 
 # Full PGO pipeline: instrument -> train (with timeout) -> optimize
 pgo: pgo-instrument pgo-train pgo-optimize
+
+pgo-run: pgo run
 
 clean: kill
 	$(RM) wordsquares output.txt wordsquares_instrumented wordsquares_optimized
@@ -64,15 +77,15 @@ podman-image: Containerfile.rawhide
 
 podman-gcc: podman-image
 	podman run --rm -v "$$(pwd)":/src:Z -w /src $(PODMAN_IMAGE) \
-	  make wordsquares
+	  make CXX="g++ -std=c++26" wordsquares
 
 podman-clang: podman-image
 	podman run --rm -v "$$(pwd)":/src:Z -w /src $(PODMAN_IMAGE) \
-	  env CXX=clang++ make wordsquares
+	  make CXX="clang++ -std=c++26" wordsquares
 
 podman-pgo: podman-image
 	podman run --rm -v "$$(pwd)":/src:Z -w /src -e PGO_TIMEOUT=$(PGO_TIMEOUT) $(PODMAN_IMAGE) \
-	  make pgo
+	  make CXX="g++ -std=c++26" pgo
 
 podman-run: podman-pgo
 	podman run -it --rm -v "$$(pwd)":/src:Z -w /src $(PODMAN_IMAGE) \
@@ -82,7 +95,7 @@ podman-run: podman-pgo
 
 REMOTE_HOST ?= dev-2025-2
 GCLOUD_ZONE ?= europe-west4-c
-REMOTE_WORKDIR ?= /tmp/wordsquares-remote
+REMOTE_WORKDIR ?= $(CURDIR)
 TMUX_SESSION ?= wordsquares-run
 
 # -------- Google Cloud VM management --------
