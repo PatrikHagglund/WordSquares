@@ -58,8 +58,7 @@ pgo-run: pgo run
 
 clean: kill
 	$(RM) wordsquares output.txt wordsquares_instrumented wordsquares_optimized
-	$(RM) -r build
-	$(RM) *.gcda *.gcno
+	$(RM) -r build $(PGO_DIR)
 
 kill:
 	killall wordsquares wordsquares_instrumented 2>/dev/null || true
@@ -88,7 +87,7 @@ podman-pgo: podman-image
 	  make CXX="g++ -std=c++26" pgo
 
 podman-run: podman-pgo
-	podman run -it --rm -v "$$(pwd)":/src:Z -w /src $(PODMAN_IMAGE) \
+	podman run -it --rm -v "$$(pwd)":/src:Z -v /etc/localtime:/etc/localtime:ro -w /src $(PODMAN_IMAGE) \
 	  make run
 
 # -------- Remote SSH execution on dev-2025-2 --------
@@ -106,8 +105,17 @@ gcloud-list:
 
 # Start remote GCP VM instance
 gcloud-start-remote:
-	@echo "Starting GCP instance $(REMOTE_HOST)"
-	gcloud compute instances start $(REMOTE_HOST) --zone=$(GCLOUD_ZONE)
+	@echo "Checking GCP instance $(REMOTE_HOST) status..."
+	@STATUS=$$(gcloud compute instances describe $(REMOTE_HOST) --zone=$(GCLOUD_ZONE) --format="value(status)"); \
+	if [ "$$STATUS" = "SUSPENDED" ]; then \
+		echo "Instance is suspended, resuming..."; \
+		gcloud compute instances resume $(REMOTE_HOST) --zone=$(GCLOUD_ZONE); \
+	elif [ "$$STATUS" = "TERMINATED" ]; then \
+		echo "Instance is terminated, starting..."; \
+		gcloud compute instances start $(REMOTE_HOST) --zone=$(GCLOUD_ZONE); \
+	else \
+		echo "Instance status: $$STATUS (no action needed)"; \
+	fi
 	@echo "Waiting for SSH connectivity..."
 	@for i in {1..30}; do \
 		if ssh -o ConnectTimeout=5 -o BatchMode=yes $(REMOTE_HOST) true 2>/dev/null; then \
@@ -115,7 +123,7 @@ gcloud-start-remote:
 			break; \
 		fi; \
 		echo "Attempt $$i/30: waiting for SSH..."; \
-		sleep 10; \
+		sleep 5; \
 	done
 
 # Stop remote GCP VM instance  
@@ -146,7 +154,6 @@ remote-podman-shell: remote-sync
 # Copy results back from remote
 remote-fetch-results:
 	rsync -av $(REMOTE_HOST):$(REMOTE_WORKDIR)/output*.txt ./
-	rsync -av $(REMOTE_HOST):$(REMOTE_WORKDIR)/wordsquares ./ 2>/dev/null || true
 
 # -------- Long-running persistent execution with tmux --------
 
@@ -163,7 +170,7 @@ remote-tmux-run: remote-sync
 	    echo 'make not found, installing...'; \
 	    sudo apt update && sudo apt install -y make; \
 	  fi && \
-	  tmux send-keys -t $(TMUX_SESSION) 'make podman-run' Enter"
+	  tmux send-keys -t $(TMUX_SESSION) 'make clean && make podman-run' Enter"
 	@echo "Started wordsquares in tmux session '$(TMUX_SESSION)' on $(REMOTE_HOST)"
 	@echo "To attach: make remote-tmux-attach"
 	@echo "To check status: make remote-tmux-status"
