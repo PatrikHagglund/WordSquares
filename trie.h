@@ -29,6 +29,7 @@ public:
 
   void add(const std::string& str);
   bool has(const std::string& str) const;
+  bool hasPrefix(const std::string& str) const;
   inline bool hasIx(int ix) const { return nodes[ix] != nullptr; }
   inline bool hasLetter(char c) const { return nodes[int(c - 'A')] != nullptr; }
   inline Trie* decend(int ix) const { return nodes[ix]; }
@@ -36,4 +37,5 @@ public:
   Iter iter() { return Iter(nodes); }
 
   Trie* nodes[NUM_LETTERS];
+  bool is_word_end = false;
 };

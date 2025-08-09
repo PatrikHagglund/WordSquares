@@ -11,8 +11,11 @@ WordSquares is a C++ application that generates word grids where all rows and co
 This project uses standard C++ compilation without a build system:
 
 ```bash
-# Compile the project
+# Compile the project (optimized)
 g++ -std=c++23 -O3 -flto=auto -march=native -mtune=native -o wordsquares main.cpp trie.cpp
+
+# Compile for debugging (with gdb/lldb)
+g++ -std=c++23 -g -O0 -o wordsquares main.cpp trie.cpp
 
 # Run the solver
 ./wordsquares

@@ -4,6 +4,7 @@
 
 Trie::Trie() {
   std::fill(nodes, nodes + NUM_LETTERS, nullptr);
+  is_word_end = false;
 }
 
 Trie::~Trie() {
@@ -24,18 +25,43 @@ void Trie::add(const std::string& str) {
     }
     ptr = ptr->nodes[ix];
   }
+  ptr->is_word_end = true;
 }
 
 bool Trie::has(const std::string& str) const {
+  if (str.empty()) return false;
+  
   const Trie* ptr = this;
   for (char c : str) {
     const int ix = c - 'A';
-    assert(ix >= 0 && ix < NUM_LETTERS);
+    if (ix < 0 || ix >= NUM_LETTERS) {
+      return false; // Invalid character
+    }
     if (ptr->nodes[ix] == nullptr) {
       return false;
     } else {
       ptr = ptr->nodes[ix];
     }
   }
+  return ptr->is_word_end;
+}
+
+bool Trie::hasPrefix(const std::string& str) const {
+  if (str.empty()) return true;
+  
+  const Trie* ptr = this;
+  for (char c : str) {
+    const int ix = c - 'A';
+    if (ix < 0 || ix >= NUM_LETTERS) {
+      return false; // Invalid character
+    }
+    if (ptr->nodes[ix] == nullptr) {
+      return false;
+    } else {
+      ptr = ptr->nodes[ix];
+    }
+  }
+  //For prefix check, we just need to reach the end of the string
+  //We don't need to check if it's a complete word
   return true;
 }
