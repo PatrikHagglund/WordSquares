@@ -26,6 +26,18 @@
 #include <atomic>
 #endif
 
+#ifdef ENABLE_PGO_FLUSH
+#include <csignal>
+// Weak declaration so builds without PGO still link
+extern "C" void __gcov_flush() __attribute__((weak));
+// Graceful shutdown flag set by signal handler
+static volatile sig_atomic_t g_exit_requested = 0;
+static void HandleSignal(int /*signum*/) {
+  // Only set a flag; main thread will flush once after threads stop
+  g_exit_requested = 1; // Async-signal-safe flag set only
+}
+#endif
+
 //Path to the dictionary file
 //Recommended source: https://raw.githubusercontent.com/andrewchen3019/wordle/refs/heads/main/Collins%20Scrabble%20Words%20(2019).txt
 #define DICTIONARY "WordFeud_ordlista.txt"
@@ -47,9 +59,9 @@
 
 //WordFeud letter distribution (includes blanks as wildcards)
 static const std::unordered_map<char, int> g_wordfeud_letters = {
-  {'A', 9}, {'B', 2}, {'C', 1}, {'D', 5}, {'E', 8}, {'F', 2}, 
-  {'G', 3}, {'H', 2}, {'I', 5}, {'J', 1}, {'K', 3}, {'L', 5}, 
-  {'M', 3}, {'N', 6}, {'O', 6}, {'P', 2}, {'R', 8}, {'S', 8}, 
+  {'A', 9}, {'B', 2}, {'C', 1}, {'D', 5}, {'E', 8}, {'F', 2},
+  {'G', 3}, {'H', 2}, {'I', 5}, {'J', 1}, {'K', 3}, {'L', 5},
+  {'M', 3}, {'N', 6}, {'O', 6}, {'P', 2}, {'R', 8}, {'S', 8},
   {'T', 9}, {'U', 3}, {'V', 2}, {'X', 1}, {'Y', 1}, {'Z', 1},
   {'Q', 2}, {'W', 2}, {'[', 2} // Q=Å, W=Ä, [=Ö
 };
@@ -60,21 +72,21 @@ static const int g_wordfeud_blanks = 2;
 //true = letter goes here, false = empty space
 static bool g_shape_mask[SIZE_H][SIZE_W] = {
   {true,true,true,true,true,true,true,true,true,true,true,true,true,true,true},
-  {true,true,true,true,false,false,false,true,false,false,false,true,true,true,true},
-  {true,true,false,false,false,false,false,true,false,false,false,false,false,true,true},
-  {true,true,false,false,false,false,false,true,false,false,false,false,false,true,true},
+  {true,true,false,false,false,false,true,true,true,false,false,false,false,true,true},
   {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
-  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,false},
   {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
+  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
+  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
+  {true,true,false,false,false,false,true,true,true,false,false,false,false,true,true},
   {true,true,true,true,true,true,true,true,true,true,true,true,true,true,true},
+  {true,true,false,false,false,false,true,true,true,false,false,false,false,true,true},
   {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
   {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
   {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
-  {true,true,false,false,false,false,false,true,false,false,false,false,false,true,true},
-  {true,true,false,false,false,false,false,true,false,false,false,false,false,true,true},
-  {true,true,true,true,false,false,false,true,false,false,false,true,true,true,true},
+  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
+  {true,true,false,false,false,false,true,true,true,false,false,false,false,true,true},
   {true,true,true,true,true,true,true,true,true,true,true,true,true,true,true}
-  
+
 };
 
 //Get total number of valid positions in the shape
@@ -192,9 +204,9 @@ void LoadDictionary(const char* fname, int length, Trie& trie, int min_freq) {
 //Check if current partial grid has all unique words
 bool HasUniqueWords(char* words, int pos) {
   if (!UNIQUE || SIZE_H != SIZE_W) return true;
-  
+
   std::unordered_set<std::string> used_words;
-  
+
   //Check complete horizontal words
   for (int h = 0; h <= pos / SIZE_W; ++h) {
     int row_start = h * SIZE_W;
@@ -205,7 +217,7 @@ bool HasUniqueWords(char* words, int pos) {
       used_words.insert(word);
     }
   }
-  
+
   //Check complete vertical words
   for (int w = 0; w < SIZE_W; ++w) {
     int col_positions = 0;
@@ -222,7 +234,7 @@ bool HasUniqueWords(char* words, int pos) {
       used_words.insert(word);
     }
   }
-  
+
   return true;
 }
 
@@ -315,22 +327,22 @@ bool IsVerticalWordEnd(int pos) {
 //Get the horizontal word segment containing this position
 std::string GetHorizontalSegment(int pos, char* words) {
   if (!IsValidPosition(pos)) return "";
-  
+
   int h = pos / SIZE_W;
   int w = pos % SIZE_W;
-  
+
   //Find start of segment
   int start_w = w;
   while (start_w > 0 && IsValidPosition(h * SIZE_W + (start_w - 1))) {
     start_w--;
   }
-  
+
   //Find end of segment
   int end_w = w;
   while (end_w < SIZE_W - 1 && IsValidPosition(h * SIZE_W + (end_w + 1))) {
     end_w++;
   }
-  
+
   //Build segment string
   std::string segment;
   for (int i = start_w; i <= end_w; ++i) {
@@ -344,22 +356,22 @@ std::string GetHorizontalSegment(int pos, char* words) {
 //Get the vertical word segment containing this position
 std::string GetVerticalSegment(int pos, char* words) {
   if (!IsValidPosition(pos)) return "";
-  
+
   int h = pos / SIZE_W;
   int w = pos % SIZE_W;
-  
+
   //Find start of segment
   int start_h = h;
   while (start_h > 0 && IsValidPosition((start_h - 1) * SIZE_W + w)) {
     start_h--;
   }
-  
+
   //Find end of segment
   int end_h = h;
   while (end_h < SIZE_H - 1 && IsValidPosition((end_h + 1) * SIZE_W + w)) {
     end_h++;
   }
-  
+
   //Build segment string
   std::string segment;
   for (int i = start_h; i <= end_h; ++i) {
@@ -391,20 +403,20 @@ int GetVerticalWordLength(int col) {
 //Check if a completed grid can be played in WordFeud with available letters
 bool CanPlayInWordFeud(char* words) {
   std::unordered_map<char, int> letter_count;
-  
+
   //Count all letters used in the grid
   for (int pos = 0; pos < SIZE_H * SIZE_W; ++pos) {
     if (IsValidPosition(pos) && words[pos] != 0) {
       letter_count[words[pos]]++;
     }
   }
-  
+
   //Check if we have enough of each letter
   int blanks_needed = 0;
   for (const auto& pair : letter_count) {
     char letter = pair.first;
     int needed = pair.second;
-    
+
     auto wordfeud_it = g_wordfeud_letters.find(letter);
     if (wordfeud_it == g_wordfeud_letters.end()) {
       //Letter not in WordFeud (shouldn't happen with our mapping)
@@ -416,27 +428,27 @@ bool CanPlayInWordFeud(char* words) {
       }
     }
   }
-  
+
   return blanks_needed <= g_wordfeud_blanks;
 }
 
 //Check if a partial grid can potentially be played in WordFeud (for deepest position tracking)
 bool CanPotentiallyPlayInWordFeud(char* words, int current_pos) {
   std::unordered_map<char, int> letter_count;
-  
+
   //Count letters used so far (up to current_pos)
   for (int pos = 0; pos <= current_pos; ++pos) {
     if (IsValidPosition(pos) && words[pos] != 0) {
       letter_count[words[pos]]++;
     }
   }
-  
+
   //Check if current usage already exceeds WordFeud limits
   int blanks_needed = 0;
   for (const auto& pair : letter_count) {
     char letter = pair.first;
     int needed = pair.second;
-    
+
     auto wordfeud_it = g_wordfeud_letters.find(letter);
     if (wordfeud_it == g_wordfeud_letters.end()) {
       blanks_needed += needed;
@@ -447,7 +459,7 @@ bool CanPotentiallyPlayInWordFeud(char* words, int current_pos) {
       }
     }
   }
-  
+
   return blanks_needed <= g_wordfeud_blanks;
 }
 
@@ -455,7 +467,7 @@ bool CanPotentiallyPlayInWordFeud(char* words, int current_pos) {
 bool IsValidPartialSegments(int pos, char* words) {
   int h = pos / SIZE_W;
   int w = pos % SIZE_W;
-  
+
   //Check horizontal word segments in this row
   //Find all word segments in the row and validate each one
   for (int start_w = 0; start_w < SIZE_W;) {
@@ -463,19 +475,19 @@ bool IsValidPartialSegments(int pos, char* words) {
       start_w++;
       continue;
     }
-    
+
     //Find the end of this segment
     int end_w = start_w;
     while (end_w < SIZE_W && IsValidPosition(h * SIZE_W + end_w)) {
       end_w++;
     }
     end_w--; // Back to last valid position
-    
+
     //Validate all segments (including single letters)
     if (end_w >= start_w) {
       std::string h_word;
       bool h_complete = true;
-      
+
       for (int col = start_w; col <= end_w; ++col) {
         int row_pos = h * SIZE_W + col;
         if (words[row_pos] == 0) {
@@ -484,7 +496,7 @@ bool IsValidPartialSegments(int pos, char* words) {
         }
         h_word += words[row_pos];
       }
-      
+
       if (h_complete && h_word.length() >= 1) {
         if (!g_trie_w.has(h_word)) {
           return false;
@@ -499,10 +511,10 @@ bool IsValidPartialSegments(int pos, char* words) {
         }
       }
     }
-    
+
     start_w = end_w + 1;
   }
-  
+
   //Check vertical word segments in this column
   //Find all word segments in the column and validate each one
   for (int start_h = 0; start_h < SIZE_H;) {
@@ -510,19 +522,19 @@ bool IsValidPartialSegments(int pos, char* words) {
       start_h++;
       continue;
     }
-    
+
     //Find the end of this segment
     int end_h = start_h;
     while (end_h < SIZE_H && IsValidPosition(end_h * SIZE_W + w)) {
       end_h++;
     }
     end_h--; // Back to last valid position
-    
+
     //Validate all segments (including single letters)
     if (end_h >= start_h) {
       std::string v_word;
       bool v_complete = true;
-      
+
       for (int row = start_h; row <= end_h; ++row) {
         int col_pos = row * SIZE_W + w;
         if (words[col_pos] == 0) {
@@ -531,7 +543,7 @@ bool IsValidPartialSegments(int pos, char* words) {
         }
         v_word += words[col_pos];
       }
-      
+
       Trie* trie_v = (SIZE_W != SIZE_H) ? &g_trie_h : &g_trie_w;
       if (v_complete && v_word.length() >= 1) {
         if (!trie_v->has(v_word)) {
@@ -547,10 +559,10 @@ bool IsValidPartialSegments(int pos, char* words) {
         }
       }
     }
-    
+
     start_h = end_h + 1;
   }
-  
+
   return true;
 }
 
@@ -563,14 +575,14 @@ bool ValidateAllSegments(char* words) {
         start_w++;
         continue;
       }
-      
+
       //Find the end of this segment
       int end_w = start_w;
       while (end_w < SIZE_W && IsValidPosition(h * SIZE_W + end_w)) {
         end_w++;
       }
       end_w--; // Back to last valid position
-      
+
       //Validate all segments (including single letters)
       if (end_w >= start_w) {
         std::string word;
@@ -581,11 +593,11 @@ bool ValidateAllSegments(char* words) {
           return false;
         }
       }
-      
+
       start_w = end_w + 1;
     }
   }
-  
+
   //Check all vertical segments (find separate word segments in each column)
   Trie* trie_v = (SIZE_W != SIZE_H) ? &g_trie_h : &g_trie_w;
   for (int w = 0; w < SIZE_W; ++w) {
@@ -594,14 +606,14 @@ bool ValidateAllSegments(char* words) {
         start_h++;
         continue;
       }
-      
+
       //Find the end of this segment
       int end_h = start_h;
       while (end_h < SIZE_H && IsValidPosition(end_h * SIZE_W + w)) {
         end_h++;
       }
       end_h--; // Back to last valid position
-      
+
       //Validate all segments (including single letters)
       if (end_h >= start_h) {
         std::string word;
@@ -612,11 +624,11 @@ bool ValidateAllSegments(char* words) {
           return false;
         }
       }
-      
+
       start_h = end_h + 1;
     }
   }
-  
+
   return true;
 }
 
@@ -634,10 +646,10 @@ void PrintBox(char* words) {
       if (num_same == SIZE_W) { return; }
     }
   }
-  
+
   //Check WordFeud compatibility
   bool wordfeud_compatible = CanPlayInWordFeud(words);
-  
+
   //Only print if WordFeud compatible
   if (wordfeud_compatible) {
     //Print result (with mutex protection in threaded mode)
@@ -667,6 +679,13 @@ void PrintBox(char* words) {
 }
 
 void BoxSearch(int pos, char* words) {
+#ifdef ENABLE_PGO_FLUSH
+  // Check for requested graceful exit
+  if (g_exit_requested) {
+    // Unwind recursion and let threads return; main will flush once
+    return;
+  }
+#endif
   //Skip invalid positions according to shape mask
   if (!IsValidPosition(pos)) {
     int next_pos = GetNextValidPosition(pos - 1);
@@ -678,11 +697,17 @@ void BoxSearch(int pos, char* words) {
     BoxSearch(next_pos, words);
     return;
   }
-  
+
   //Try all possible letters at this position
   for (char c = 'A'; c <= 'Z'; ++c) {
+#ifdef ENABLE_PGO_FLUSH
+    if (g_exit_requested) {
+      // Stop exploring further; caller will unwind
+      return;
+    }
+#endif
     words[pos] = c;
-    
+
     //Check if current horizontal and vertical segments are valid so far
     if (IsValidPartialSegments(pos, words)) {
 #ifdef ENABLE_WORDFEUD_PRUNING
@@ -732,37 +757,41 @@ void BoxSearch(int pos, char* words) {
         std::cout << std::endl;
       }
 #endif
-      
+
       //Count combinations tried and show progress
 #ifdef ENABLE_THREADING
       uint64_t combinations = ++g_combinations_tried;
-      if (combinations % 1000000000 == 0) {
+      if (combinations % 10000000 == 0) {
         std::lock_guard<std::mutex> lock(g_print_mutex);
         auto current_time = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds = std::chrono::duration<double>(current_time - g_start_time).count();
         double combinations_per_second = combinations / elapsed_seconds;
-        std::cout << "Combinations tried: " << combinations 
+        std::cout << "Combinations tried: " << combinations
                   << " (" << std::fixed << std::setprecision(0) << combinations_per_second << " comb/sec)" << std::endl;
+
+        // No per-thread flush here; main will flush once at exit
       }
 #else
       ++g_combinations_tried;
-      if (g_combinations_tried % 10000000 == 0) {
+      if (g_combinations_tried % 1000000 == 0) {
         auto current_time = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds = std::chrono::duration<double>(current_time - g_start_time).count();
         double combinations_per_second = g_combinations_tried / elapsed_seconds;
-        std::cout << "Combinations tried: " << g_combinations_tried 
+        std::cout << "Combinations tried: " << g_combinations_tried
                   << " (" << std::fixed << std::setprecision(0) << combinations_per_second << " comb/sec)" << std::endl;
+
+        // No periodic flush in single-thread mode either during training
       }
 #endif
-      
+
       //Show progress (only for first position)
-      if (pos == GetNextValidPosition(-1)) { 
+      if (pos == GetNextValidPosition(-1)) {
 #ifdef ENABLE_THREADING
         std::lock_guard<std::mutex> lock(g_print_mutex);
 #endif
-        std::cout << "=== [" << c << "] ===" << std::endl; 
+        std::cout << "=== [" << c << "] ===" << std::endl;
       }
-      
+
       //Check if we've reached the end
       int next_pos = GetNextValidPosition(pos);
       if (next_pos == -1) {
@@ -776,7 +805,7 @@ void BoxSearch(int pos, char* words) {
       }
     }
   }
-  
+
   //Clear the position when backtracking
   words[pos] = 0;
 }
@@ -786,26 +815,26 @@ void BoxSearch(int pos, char* words) {
 void SearchWorker(char starting_letter, Trie* trie_h) {
   //Each thread has its own word grid
   char words[SIZE_H * SIZE_W] = { 0 };
-  
+
   //Find the first valid position
   int first_pos = GetNextValidPosition(-1);
   if (first_pos == -1) return; // No valid positions
-  
+
   //Set the first letter at the first valid position
   words[first_pos] = starting_letter;
-  
+
 #ifdef ENABLE_WORDFEUD_PRUNING
   //Check if even the first letter exceeds WordFeud limits (very unlikely but possible)
   if (!CanPotentiallyPlayInWordFeud(words, first_pos)) {
     return; //Skip this starting letter entirely
   }
 #endif
-  
+
   {
     std::lock_guard<std::mutex> lock(g_print_mutex);
     std::cout << "=== [" << starting_letter << "] ===" << std::endl;
   }
-  
+
   //Start the search from the next valid position after first_pos
   int next_pos = GetNextValidPosition(first_pos);
   if (next_pos != -1) {
@@ -820,6 +849,11 @@ void SearchWorker(char starting_letter, Trie* trie_h) {
 #endif
 
 int main(int argc, char* argv[]) {
+#ifdef ENABLE_PGO_FLUSH
+  // Install signal handlers for graceful PGO flush on stop
+  std::signal(SIGINT, HandleSignal);
+  std::signal(SIGTERM, HandleSignal);
+#endif
 #ifdef ENABLE_FREQ_FILTER
   //Load word frequency list
   LoadFreq(FREQ_FILTER);
@@ -839,7 +873,7 @@ int main(int argc, char* argv[]) {
     }
     if (segment_length > 0) needed_lengths.insert(segment_length);
   }
-  
+
   for (int w = 0; w < SIZE_W; ++w) {
     int segment_length = 0;
     for (int h = 0; h < SIZE_H; ++h) {
@@ -852,26 +886,26 @@ int main(int argc, char* argv[]) {
     }
     if (segment_length > 0) needed_lengths.insert(segment_length);
   }
-  
+
   std::cout << "Loading words of lengths: ";
   for (int len : needed_lengths) {
     std::cout << len << " ";
   }
   std::cout << std::endl;
-  
+
   //Load all needed word lengths into both general tries and length-specific tries
   for (int length : needed_lengths) {
     LoadDictionary(DICTIONARY, length, g_trie_w, MIN_FREQ_W);
     LoadDictionary(DICTIONARY, length, g_tries_by_length[length], MIN_FREQ_W);
   }
-  
+
   //For non-square grids, also load words into the vertical trie
   if (SIZE_W != SIZE_H) {
     for (int length : needed_lengths) {
       LoadDictionary(DICTIONARY, length, g_trie_h, MIN_FREQ_H);
     }
   }
-  
+
   Trie* trie_h = &g_trie_w;
 
 #ifdef ENABLE_THREADING
@@ -881,21 +915,21 @@ int main(int argc, char* argv[]) {
   while (iter.next()) {
     available_letters.push_back(iter.getLetter());
   }
-  
+
   //Determine number of threads (limit to hardware concurrency)
-  const unsigned int num_threads = std::min(std::thread::hardware_concurrency(), 
+  const unsigned int num_threads = std::min(std::thread::hardware_concurrency(),
                                            static_cast<unsigned int>(available_letters.size()));
-  
-  std::cout << "Starting parallel search with " << num_threads << " threads processing " 
+
+  std::cout << "Starting parallel search with " << num_threads << " threads processing "
             << available_letters.size() << " starting letters..." << std::endl;
-  
+
   //Initialize timing for combinations per second tracking
   g_start_time = std::chrono::high_resolution_clock::now();
   g_last_report_time = g_start_time;
-  
+
   //Work queue and synchronization
   std::atomic<size_t> work_index(0);
-  
+
   //Worker function that processes multiple letters per thread
   auto worker = [&]() {
     size_t index;
@@ -903,34 +937,38 @@ int main(int argc, char* argv[]) {
       SearchWorker(available_letters[index], trie_h);
     }
   };
-  
+
   //Create and launch threads
   std::vector<std::thread> threads;
   for (unsigned int i = 0; i < num_threads; ++i) {
     threads.emplace_back(worker);
   }
-  
+
   //Wait for all threads to complete
   for (auto& thread : threads) {
     thread.join();
   }
-  
+
   auto end_time = std::chrono::high_resolution_clock::now();
   auto total_seconds = std::chrono::duration<double>(end_time - g_start_time).count();
   double avg_combinations_per_second = g_combinations_tried / total_seconds;
-  std::cout << "Done. Total combinations tried: " << g_combinations_tried 
+  std::cout << "Done. Total combinations tried: " << g_combinations_tried
             << " (avg " << std::fixed << std::setprecision(0) << avg_combinations_per_second << " comb/sec)" << std::endl;
+#ifdef ENABLE_PGO_FLUSH
+  // Single flush at end of run (after threads stop)
+  if (__gcov_flush) __gcov_flush();
+#endif
 #else
   //Single-threaded search
   std::cout << "Starting single-threaded search..." << std::endl;
-  
+
   //Initialize timing for combinations per second tracking
   g_start_time = std::chrono::high_resolution_clock::now();
   g_last_report_time = g_start_time;
-  
+
   //Initialize word grid
   char words[SIZE_H * SIZE_W] = { 0 };
-  
+
   //Start the search from the first valid position
   int first_pos = GetNextValidPosition(-1);
   if (first_pos != -1) {
@@ -938,12 +976,16 @@ int main(int argc, char* argv[]) {
   } else {
     std::cout << "No valid positions in shape mask!" << std::endl;
   }
-  
+
   auto end_time = std::chrono::high_resolution_clock::now();
   auto total_seconds = std::chrono::duration<double>(end_time - g_start_time).count();
   double avg_combinations_per_second = g_combinations_tried / total_seconds;
-  std::cout << "Done. Total combinations tried: " << g_combinations_tried 
+  std::cout << "Done. Total combinations tried: " << g_combinations_tried
             << " (avg " << std::fixed << std::setprecision(0) << avg_combinations_per_second << " comb/sec)" << std::endl;
+#ifdef ENABLE_PGO_FLUSH
+  // Flush once at end of single-thread run
+  if (__gcov_flush) __gcov_flush();
+#endif
 #endif
   return 0;
 }

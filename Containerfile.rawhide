@@ -1,0 +1,12 @@
+FROM fedora:rawhide
+
+# Install recent toolchains and build deps
+RUN dnf -y upgrade \
+ && dnf -y install \
+    gcc-c++ clang make cmake ninja-build \
+    glibc-static libstdc++-static \
+    coreutils findutils moreutils util-linux \
+ && dnf clean all
+
+# Default command shows versions; actual builds happen via Makefile targets
+#CMD ["sh", "-c", "g++ --version && clang++ --version"]
