@@ -2,7 +2,8 @@
         podman-image podman-gcc podman-clang podman-pgo podman-run \
         remote-sync remote-podman-run remote-podman-shell remote-fetch-results \
         remote-tmux-run remote-tmux-attach remote-tmux-status \
-        gcloud-start-remote gcloud-stop-remote gcloud-status-remote
+        gcloud-start-remote gcloud-stop-remote gcloud-status-remote \
+        wordfeud-planner wordfeud-run
 
 # Allow overriding compiler, default to g++ -std=c++23
 # Only set CXX if not already defined (including command line)
@@ -21,11 +22,25 @@ run-simple: wordsquares WordFeud_ordlista.txt
 	./wordsquares
 
 WordFeud_ordlista.txt:
-	printf '%s\n' A B C D E F G H I J K L M N O P Q R S T U V W X Y Z Å Ä Ö > WordFeud_ordlista.txt
+	printf '%s\n' A B C D E F G H I J K L M N O P R S T U V X Y Z Å Ä Ö > WordFeud_ordlista.txt
+	# FIXME: check this discrepancy
+	printf '%s\n' TT UD >> WordFeud_ordlista.txt
 	curl -s https://raw.githubusercontent.com/38DavidH/WordFeud-SAOL/refs/heads/main/WordFeud_ordlista.txt >> WordFeud_ordlista.txt
 
 wordsquares: main.cpp trie.cpp trie.h
 	$(CXX) $(CXXFLAGS) -o wordsquares main.cpp trie.cpp
+
+wordfeud-planner: wordfeud_planner.cpp trie.cpp trie.h WordFeud_ordlista.txt
+	$(CXX) $(CXXFLAGS) -o wordfeud_planner wordfeud_planner.cpp trie.cpp
+
+plan: wordfeud-planner
+	./wordfeud_planner
+
+rank-solutions: rank_solutions.cpp trie.cpp trie.h WordFeud_ordlista.txt
+	$(CXX) $(CXXFLAGS) -o rank_solutions rank_solutions.cpp trie.cpp
+
+rank: rank-solutions
+	./rank_solutions
 
 cmake:
 	env CXX="clang++ -std=c++23"  \
@@ -92,8 +107,9 @@ podman-run: podman-pgo
 
 # -------- Remote SSH execution on dev-2025-2 --------
 
-REMOTE_HOST ?= dev-2025-2
+REMOTE_HOST ?= d-2
 GCLOUD_ZONE ?= europe-west4-c
+GCLOUD_PROJECT ?= dotted-tide-467617-k3
 REMOTE_WORKDIR ?= $(CURDIR)
 TMUX_SESSION ?= wordsquares-run
 
@@ -106,13 +122,13 @@ gcloud-list:
 # Start remote GCP VM instance
 gcloud-start-remote:
 	@echo "Checking GCP instance $(REMOTE_HOST) status..."
-	@STATUS=$$(gcloud compute instances describe $(REMOTE_HOST) --zone=$(GCLOUD_ZONE) --format="value(status)"); \
+	@STATUS=$$(gcloud compute instances describe $(REMOTE_HOST) --zone=$(GCLOUD_ZONE) --project=$(GCLOUD_PROJECT) --format="value(status)"); \
 	if [ "$$STATUS" = "SUSPENDED" ]; then \
 		echo "Instance is suspended, resuming..."; \
-		gcloud compute instances resume $(REMOTE_HOST) --zone=$(GCLOUD_ZONE); \
+		gcloud compute instances resume $(REMOTE_HOST) --zone=$(GCLOUD_ZONE) --project=$(GCLOUD_PROJECT); \
 	elif [ "$$STATUS" = "TERMINATED" ]; then \
 		echo "Instance is terminated, starting..."; \
-		gcloud compute instances start $(REMOTE_HOST) --zone=$(GCLOUD_ZONE); \
+		gcloud compute instances start $(REMOTE_HOST) --zone=$(GCLOUD_ZONE) --project=$(GCLOUD_PROJECT); \
 	else \
 		echo "Instance status: $$STATUS (no action needed)"; \
 	fi

@@ -71,21 +71,17 @@ static const int g_wordfeud_blanks = 2;
 //EDIT THIS MANUALLY to define your custom shape:
 //true = letter goes here, false = empty space
 static bool g_shape_mask[SIZE_H][SIZE_W] = {
-  {true,true,true,true,true,true,true,true,true,true,true,true,true,true,true},
-  {true,true,false,false,false,false,true,true,true,false,false,false,false,true,true},
-  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
-  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
-  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
-  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
-  {true,true,false,false,false,false,true,true,true,false,false,false,false,true,true},
-  {true,true,true,true,true,true,true,true,true,true,true,true,true,true,true},
-  {true,true,false,false,false,false,true,true,true,false,false,false,false,true,true},
-  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
-  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
-  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
-  {true,false,false,false,false,false,false,true,false,false,false,false,false,false,true},
-  {true,true,false,false,false,false,true,true,true,false,false,false,false,true,true},
-  {true,true,true,true,true,true,true,true,true,true,true,true,true,true,true}
+  {false,true,true,true,true,false,true,false,true,true,true,false},
+  {true,false,true,true,true,true,true,true,true,true,false,true},
+  {true,true,false,true,true,false,true,false,true,false,true,true},
+  {true,true,true,false,true,true,true,true,false,true,true,true},
+  {false,true,false,true,true,true,true,true,true,false,true,false},
+  {true,true,true,true,true,true,true,true,true,true,true,true},
+  {false,true,false,true,true,true,true,true,true,false,true,false},
+  {true,true,true,false,true,true,true,true,false,true,true,true},
+  {true,true,false,true,true,false,true,false,true,false,true,true},
+  {true,false,true,true,true,true,true,true,true,true,false,true},
+  {false,true,true,true,true,false,true,false,true,true,true,false}
 
 };
 
